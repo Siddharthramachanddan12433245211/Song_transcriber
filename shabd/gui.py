@@ -189,6 +189,11 @@ class App:
         if not opts["formats"]:
             messagebox.showinfo("Shabd", "Tick at least one output format (.srt, .vtt or .txt).")
             return
+        if opts["overwrite"]:
+            if not messagebox.askyesno(
+                    "Shabd", "Existing subtitle files with matching names will "
+                             "be REPLACED. Continue?"):
+                return
         self.cancel_event.clear()
         self._set_running(True)
         self._log_clear()
@@ -210,7 +215,18 @@ class App:
             if not messagebox.askyesno("Shabd", "A transcription is running. Stop it and quit?"):
                 return
             self.cancel_event.set()
+            self.status_var.set("Stopping safely — finishing the current segment…")
+            self._shutdown_poll(tries=100)  # up to ~10 s for a clean stop
+            return
         self.root.destroy()
+
+    def _shutdown_poll(self, tries):
+        """Wait for the worker to stop before destroying the window, so a
+        file write is never cut off mid-flight."""
+        if self.worker is not None and self.worker.is_alive() and tries > 0:
+            self.root.after(100, lambda: self._shutdown_poll(tries - 1))
+        else:
+            self.root.destroy()
 
     # ------------------------------------------------------ worker thread --
 
@@ -247,6 +263,9 @@ class App:
                 except FileExistsError as e:
                     failed += 1
                     q.put(("log", "SKIPPED (already exists): %s — tick 'Overwrite existing' to replace." % e))
+                except FileNotFoundError:
+                    failed += 1
+                    q.put(("log", "ERROR: file not found (moved or renamed?): %s" % path))
                 except Exception as e:
                     failed += 1
                     q.put(("log", "ERROR on %s: %s" % (os.path.basename(path), e)))

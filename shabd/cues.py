@@ -59,9 +59,11 @@ def normalize_words(raw_words):
         start, end = w["start"], w["end"]
         if start is None:
             start = prev_end
-        if end is None or end < start:
+        # Whisper-family models can emit backward-jumping word times at
+        # segment/VAD boundaries; clamp forward so cues can never overlap.
+        start = max(0.0, float(start), prev_end)
+        if end is None:
             end = start
-        start = max(0.0, float(start))
         end = max(float(end), start)
         w["start"], w["end"] = start, end
         prev_end = end
@@ -223,6 +225,15 @@ def _normalize_timing(cues, o):
             room = c["start"] + o["max_duration"]
         wanted = c["start"] + o["min_duration"]
         c["end"] = max(c["end"], min(wanted, room), c["start"] + 0.05)
+    # Hard caps, applied last: never exceed max_duration (a lone word with a
+    # long time span must not sit on screen for 9 s), never overlap the next
+    # cue, and always keep end > start.
+    for i, c in enumerate(cues):
+        c["end"] = min(c["end"], c["start"] + o["max_duration"])
+        if i + 1 < len(cues):
+            c["end"] = min(c["end"], max(cues[i + 1]["start"] - o["min_gap"],
+                                         c["start"] + 0.01))
+        c["end"] = max(c["end"], c["start"] + 0.01)
     return cues
 
 
@@ -283,7 +294,7 @@ def to_srt(cues):
                 "\n".join(c["lines"]),
             )
         )
-    return "\n".join(blocks) + ("" if not blocks else "")
+    return "\n".join(blocks)
 
 
 def to_vtt(cues):

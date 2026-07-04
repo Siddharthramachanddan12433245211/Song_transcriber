@@ -61,6 +61,44 @@ def build_vocab_prompt(vocab_text):
     return "Glossary: " + ", ".join(terms) + "."
 
 
+def collect_words(segments_iter, duration, on_progress=None, on_segment=None,
+                  cancel_event=None):
+    """Consume the model's segment stream into a clean word list.
+
+    Module-level and model-free so it is unit-testable with fake segments.
+    Drops probable hallucinations using the model's own confidence signals
+    (spec §Accuracy 7): no-speech probability, average log-probability, and
+    compression ratio (high ratio = repetitive "stuck loop" output).
+    """
+    words = []
+    for seg in segments_iter:
+        if cancel_event is not None and cancel_event.is_set():
+            raise CancelledError()
+        text = (getattr(seg, "text", "") or "").strip()
+        if not text:
+            continue
+        no_speech = getattr(seg, "no_speech_prob", 0.0) or 0.0
+        logprob = getattr(seg, "avg_logprob", None)
+        compression = getattr(seg, "compression_ratio", 0.0) or 0.0
+        low_confidence = logprob is not None and logprob < -1.0
+        if low_confidence and (no_speech > 0.85 or compression > 2.4):
+            continue
+        if getattr(seg, "words", None):
+            for w in seg.words:
+                wt = (w.word or "").strip()
+                if wt:
+                    words.append({"text": wt, "start": w.start, "end": w.end})
+        else:
+            words.extend(cues.synthesize_words(text, seg.start, seg.end))
+        if on_segment:
+            on_segment(text, seg.start, seg.end)
+        if on_progress and duration > 0:
+            on_progress(min(seg.end / duration, 1.0))
+    if on_progress:
+        on_progress(1.0)
+    return words
+
+
 class Engine:
     """Loads Whisper models (cached between files) and transcribes media."""
 
@@ -118,35 +156,9 @@ class Engine:
             initial_prompt=build_vocab_prompt(vocab),
         )
         duration = float(info.duration or 0.0)
-
-        words = []
-        for seg in segments_iter:
-            if cancel_event is not None and cancel_event.is_set():
-                raise CancelledError()
-            text = (seg.text or "").strip()
-            if not text:
-                continue
-            # Confidence-signal guard on top of the model's own thresholds:
-            # a segment the model itself marks as probably-not-speech AND
-            # decodes with very low confidence is discarded (hallucination).
-            no_speech = getattr(seg, "no_speech_prob", 0.0) or 0.0
-            logprob = getattr(seg, "avg_logprob", 0.0)
-            if no_speech > 0.85 and logprob is not None and logprob < -1.0:
-                continue
-            if getattr(seg, "words", None):
-                for w in seg.words:
-                    wt = (w.word or "").strip()
-                    if wt:
-                        words.append({"text": wt, "start": w.start, "end": w.end})
-            else:
-                words.extend(cues.synthesize_words(text, seg.start, seg.end))
-            if on_segment:
-                on_segment(text, seg.start, seg.end)
-            if on_progress and duration > 0:
-                on_progress(min(seg.end / duration, 1.0))
-
-        if on_progress:
-            on_progress(1.0)
+        words = collect_words(segments_iter, duration,
+                              on_progress=on_progress, on_segment=on_segment,
+                              cancel_event=cancel_event)
         return {
             "words": words,
             "language": info.language,
@@ -172,14 +184,21 @@ def write_outputs(result, source_path, formats, output_dir=None, overwrite=False
         "vtt": (lambda: cues.to_vtt(built), "utf-8"),
         "txt": (lambda: cues.to_txt(built), "utf-8-sig"),
     }
-    written = []
+    # All-or-nothing: validate every target BEFORE writing anything, so a
+    # conflict on the second format can't leave a half-written job behind.
+    targets = []
     for fmt in formats:
         fmt = fmt.strip().lower()
         if fmt not in renderers:
             raise ValueError("Unknown format: %s (use srt, vtt, txt)" % fmt)
-        target = os.path.join(out_dir, "%s.%s" % (stem, fmt))
-        if os.path.exists(target) and not overwrite:
-            raise FileExistsError(target)
+        targets.append((fmt, os.path.join(out_dir, "%s.%s" % (stem, fmt))))
+    if not overwrite:
+        for _fmt, target in targets:
+            if os.path.exists(target):
+                raise FileExistsError(target)
+
+    written = []
+    for fmt, target in targets:
         render, encoding = renderers[fmt]
         with open(target, "w", encoding=encoding, newline="\n") as f:
             f.write(render())

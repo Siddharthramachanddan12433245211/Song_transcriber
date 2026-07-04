@@ -34,3 +34,9 @@ py -m venv .venv
 - `shabd/gui.py` — desktop app (Tkinter)
 
 Docs: spec in `specs/subtitle-studio.md`, plan in `plans/subtitle-studio.md`.
+
+## Pre-release manual checklist
+1. All tests green (`unittest discover` + `tests\e2e_test.py`).
+2. Offline check: after models are downloaded, disconnect Wi-Fi and confirm a
+   transcription completes (spec success criterion 3 — can't be automated well).
+3. Try one real video with Hindi or accented speech at the High tier.

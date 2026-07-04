@@ -163,6 +163,31 @@ class TestGrouping(unittest.TestCase):
         self.assertEqual(cues.build_cues([]), [])
         self.assertEqual(cues.build_cues(None), [])
 
+    def test_single_long_word_capped_at_max_duration(self):
+        # Review finding C1: a lone word spanning 9 s must not sit on
+        # screen longer than the 6 s maximum.
+        result = cues.build_cues([{"text": "Wow", "start": 0.0, "end": 9.0}])
+        self.assertEqual(len(result), 1)
+        self.assertLessEqual(result[0]["end"] - result[0]["start"],
+                             cues.DEFAULTS["max_duration"] + 1e-9)
+
+    def test_backward_word_times_never_overlap_cues(self):
+        # Review finding M1: models can emit backward-jumping word times at
+        # segment boundaries; cues must stay ordered and non-overlapping.
+        words = [
+            {"text": "First.", "start": 0.0, "end": 0.5},
+            {"text": "Second.", "start": 2.0, "end": 2.5},
+            {"text": "Rewound.", "start": 1.0, "end": 1.2},  # goes backward
+            {"text": "Onward.", "start": 3.0, "end": 3.4},
+        ]
+        result = cues.build_cues(words)
+        joined = " ".join(c["text"] for c in result)
+        self.assertEqual(joined, "First. Second. Rewound. Onward.")
+        for i in range(len(result) - 1):
+            self.assertLessEqual(result[i]["end"], result[i + 1]["start"])
+        for c in result:
+            self.assertGreater(c["end"], c["start"])
+
 
 class TestTiming(unittest.TestCase):
     def test_min_duration_extended_when_room(self):
