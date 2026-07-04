@@ -18,3 +18,20 @@ assumption), record: date, what happened, root cause, prevention.
   function (`engine.collect_words`) so it stays unit-testable. Rule of thumb
   recorded: for every "must never" in the spec, write the test that tries to
   make it happen.
+
+## 2026-07-05 — "Replit-ready web app" was committed but never ran
+- **What**: Two commits added a Flask web app + Replit config and the README
+  claimed it worked ("This project is ready to deploy on Replit"). In reality
+  `shabd/web.py` crashed on import (duplicate `download_file` route) and
+  `templates/index.html` had orphan Jinja fragments (`{% endif %}` with no
+  `{% if %}` → TemplateSyntaxError). Both reproduced with failing output on
+  2026-07-05 before fixing. Also: no spec, no plan, no tests, committed
+  straight to main — every phase rule skipped. Replit itself was a dead end
+  (free tier cannot host this).
+- **Root cause**: Feature was written and "declared done" without ever
+  starting the server or rendering the page once; process gates (spec → plan
+  → test → review) bypassed.
+- **Prevention**: Web work now has its own spec/plan; unit tests must include
+  "server imports and page renders"; nothing is called done without a real
+  HTTP round-trip proof. Hosting claims require checking the host's current
+  pricing page first.
