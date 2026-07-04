@@ -241,10 +241,12 @@ def _sweeper_loop():
 
 
 def _start_sweeper():
-    if not _sweeper_started.is_set():
+    with _jobs_lock:
+        if _sweeper_started.is_set():
+            return
         _sweeper_started.set()
-        threading.Thread(target=_sweeper_loop, daemon=True,
-                         name="shabd-web-sweeper").start()
+    threading.Thread(target=_sweeper_loop, daemon=True,
+                     name="shabd-web-sweeper").start()
 
 
 def _ensure_worker():
@@ -313,7 +315,7 @@ def submit():
         media.save(input_path)
 
         duration = probe_duration_seconds(input_path)
-        if duration is None:
+        if MAX_MINUTES and duration is None:
             return jsonify(success=False,
                            error="Could not read this file's length — it may "
                                  "be damaged. Please upload a standard audio/"

@@ -40,6 +40,11 @@ The page must say this plainly.
 | Max queue length | 10 waiting jobs | `SHABD_WEB_MAX_QUEUE` | fail fast with a friendly message |
 | File retention | ≤ 2 hours | `SHABD_WEB_RETENTION_MINUTES` | privacy + disk |
 
+Accepted residual risk (review 2026-07-05): a file whose header *lies* about
+a short duration passes the pre-check and is only rejected after transcribing
+— it could occupy the single worker for a long stretch. Hard to construct,
+bounded by the 50 MB cap, revisit if abuse is ever observed.
+
 ## Features (v1)
 1. One page: upload file → pick tier/language/output format → live progress
    with queue position → read result in the page + download the file.
