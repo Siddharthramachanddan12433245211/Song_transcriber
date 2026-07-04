@@ -105,14 +105,19 @@ class Engine:
     def __init__(self):
         self._model = None
         self._model_name = None
+        self._model_device = None
+        self._model_compute_type = None
         self._lock = threading.Lock()
 
-    def load_model(self, model_name, on_status=None):
+    def load_model(self, model_name, device=None, compute_type=None, on_status=None):
         with self._lock:
-            if self._model is not None and self._model_name == model_name:
+            if device is None or compute_type is None:
+                device, compute_type = hardware.detect_device()
+            if (self._model is not None and self._model_name == model_name and
+                    self._model_device == device and
+                    self._model_compute_type == compute_type):
                 return self._model
             from faster_whisper import WhisperModel  # lazy: unit tests don't need it
-            device, compute_type = hardware.detect_device()
             if on_status:
                 on_status("Loading model '%s' (%s)… first time downloads it" % (model_name, device))
             self._model = WhisperModel(
@@ -122,10 +127,13 @@ class Engine:
                 cpu_threads=hardware.cpu_threads(),
             )
             self._model_name = model_name
+            self._model_device = device
+            self._model_compute_type = compute_type
             return self._model
 
     def transcribe_file(self, path, tier_or_model="high", language=None,
                         task="transcribe", vocab=None,
+                        device=None, compute_type=None,
                         on_progress=None, on_segment=None, on_status=None,
                         cancel_event=None):
         """Transcribe one media file.
@@ -139,7 +147,8 @@ class Engine:
         if not os.path.isfile(path):
             raise FileNotFoundError(path)
         model_name = tier_to_model(tier_or_model)
-        model = self.load_model(model_name, on_status=on_status)
+        model = self.load_model(model_name, device=device,
+                                compute_type=compute_type, on_status=on_status)
 
         lang = None if (not language or language == "auto") else language
         if on_status:

@@ -7,6 +7,9 @@ def detect_device():
     """Returns (device, compute_type) for the CTranslate2 backend.
     NVIDIA GPU -> ("cuda", "float16"); otherwise CPU with int8 quantization
     (fastest CPU mode with negligible accuracy impact)."""
+    override = os.environ.get("SHABD_DEVICE", "").strip().lower()
+    if override in ("cuda", "cpu"):
+        return ("cuda", "float16") if override == "cuda" else ("cpu", "int8")
     try:
         import ctranslate2
         if ctranslate2.get_cuda_device_count() > 0:

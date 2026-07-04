@@ -27,11 +27,31 @@ py -m venv .venv
 .venv\Scripts\python tests\e2e_test.py                     # full pipeline test (downloads tiny model once)
 ```
 
+## Web app
+Run the Flask web UI locally:
+```
+.venv\Scripts\python -m shabd.web
+```
+Then open `http://127.0.0.1:5000/` in your browser.
+
+This version is intended for free CPU transcription. It uses your existing code and runs the model locally on the server.
+
+Optional environment variables:
+- `SHABD_SECRET_KEY` to override the Flask secret key
+
+Use the web form to upload a media file and download the generated transcript.
+
+### Monetization / ads
+I added lightweight ad placeholders in `templates/index.html` so you can replace them with real ad code later.
+- The ads are non-intrusive and only appear in two small banner areas.
+- For real monetization, integrate Google AdSense or any ad network into those placeholders.
+
 - `shabd/cues.py` — subtitle formatting logic (pure functions, fully unit-tested)
 - `shabd/engine.py` — speech recognition wrapper (faster-whisper)
 - `shabd/hardware.py` — device detection + model recommendation
 - `shabd/cli.py` — command-line interface
 - `shabd/gui.py` — desktop app (Tkinter)
+- `shabd/web.py` — lightweight Flask web interface
 
 Docs: spec in `specs/subtitle-studio.md`, plan in `plans/subtitle-studio.md`.
 

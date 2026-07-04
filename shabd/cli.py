@@ -30,6 +30,8 @@ def make_parser():
     p.add_argument("--task", default="transcribe",
                    choices=["transcribe", "translate"],
                    help="translate = subtitles in English regardless of speech language")
+    p.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
+                   help="where to run the model: auto, cuda, or cpu")
     p.add_argument("--formats", default="srt",
                    help="comma-separated: srt,vtt,txt (default srt)")
     p.add_argument("--output-dir", default=None,
@@ -56,8 +58,9 @@ def main(argv=None):
     formats = [f for f in args.formats.split(",") if f.strip()]
 
     print("Shabd %s — %s" % (__version__, hardware.describe()))
-    print("Model: %s | Language: %s | Task: %s | Formats: %s" % (
-        engine_mod.tier_to_model(tier), args.language, args.task, ",".join(formats)))
+    print("Model: %s | Language: %s | Task: %s | Formats: %s | Device: %s" % (
+        engine_mod.tier_to_model(tier), args.language, args.task,
+        ",".join(formats), args.device))
 
     eng = engine_mod.Engine()
     failures = 0
@@ -82,6 +85,7 @@ def main(argv=None):
             result = eng.transcribe_file(
                 path, tier_or_model=tier, language=args.language,
                 task=args.task, vocab=args.vocab,
+                device=(None if args.device == "auto" else args.device),
                 on_progress=on_progress, on_segment=on_segment,
                 on_status=lambda m: print(m),
             )

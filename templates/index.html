@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Shabd Web</title>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { font-size: 2rem; margin-bottom: 0.2rem; }
+    p.lead { margin-top: 0; color: #555; }
+    .panel { background: #fff; border: 1px solid #ddd; border-radius: 14px; padding: 1.25rem; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+    label { display: block; margin: 1rem 0 0.35rem; font-weight: 600; }
+    input, select, textarea, button { width: 100%; border-radius: 10px; border: 1px solid #ccc; padding: 0.8rem; font-size: 1rem; }
+    textarea { min-height: 260px; resize: vertical; font-family: ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+    button { margin-top: 1rem; background: #2d7bf2; color: #fff; border: none; cursor: pointer; }
+    button:hover { background: #1d6de0; }
+    .flash { margin: 1rem 0; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 10px; padding: 0.9rem; }
+    .download { margin-top: 1rem; }
+    .ad-box { margin: 1.5rem 0; padding: 1rem; border-radius: 14px; background: #f7f8fc; border: 1px dashed #c5c7d5; color: #444; text-align: center; }
+    .ad-box small { display: block; margin-top: 0.5rem; color: #777; }
+    .result h2 { margin-top: 1.5rem; }
+    .footer { margin-top: 2rem; color: #666; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Shabd Web</h1>
+    <p class="lead">Free CPU transcription for audio/video files. Upload a file, wait for processing, and download subtitles.</p>
+
+      <div class="ad-box">
+        <strong>Advertisement</strong>
+        <p>Grow your podcast with AI-ready subtitles. <a href="#">Learn more</a></p>
+        <small>Ads help keep this service free.</small>
+      </div>
+
+      <form id="transcribe-form" enctype="multipart/form-data">
+        <label for="media">Media file</label>
+        <input type="file" name="media" id="media" accept="video/*,audio/*" required>
+
+        <label for="tier">Accuracy tier</label>
+        <select name="tier" id="tier">
+          <option value="fast">fast</option>
+          <option value="balanced">balanced</option>
+          <option value="high" selected>high</option>
+          <option value="max">max</option>
+        </select>
+
+        <label for="language">Language</label>
+        <input name="language" id="language" value="auto" placeholder="auto or ISO code like en, hi">
+
+        <label for="task">Task</label>
+        <select name="task" id="task">
+          <option value="transcribe" selected>transcribe</option>
+          <option value="translate">translate</option>
+        </select>
+
+        <label for="format">Output format</label>
+        <select name="format" id="format">
+          <option value="srt" selected>.srt</option>
+          <option value="vtt">.vtt</option>
+          <option value="txt">.txt</option>
+        </select>
+
+        <label for="vocab">Custom vocabulary</label>
+        <input name="vocab" id="vocab" placeholder="names, brands, technical terms">
+
+        <button type="submit">Transcribe</button>
+      </form>
+
+      <div class="progress-container" style="display:none; margin-top:1rem;">
+        <label>Progress</label>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill">0%</div></div>
+        <div id="progress-message" style="margin-top:0.5rem; color:#333; font-size:0.95rem;"></div>
+      </div>
+
+      <div id="result" style="display:none; margin-top:1.5rem;"></div>
+    </div>
+        <p><strong>File:</strong> {{ input_name }}</p>
+        <p><strong>Language:</strong> {{ language }} ({{ confidence }}% confidence)</p>
+        <p class="download"><a href="{{ download_url }}">Download {{ format }}</a></p>
+        <textarea readonly>{{ output_text }}</textarea>
+      </div>
+    {% endif %}
+
+    <div class="ad-box">
+      <strong>Advertisement</strong>
+      <p>Need faster transcriptions? Upgrade to GPU-powered processing soon.</p>
+      <small>One more ad keeps this site affordable.</small>
+    </div>
+
+    <div class="footer">
+      <p>Note: This site runs free CPU transcription. Processing may take longer for large files.</p>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById('transcribe-form');
+    const progressContainer = document.querySelector('.progress-container');
+    const progressFill = document.getElementById('progress-fill');
+    const progressMessage = document.getElementById('progress-message');
+    const result = document.getElementById('result');
+
+    async function pollStatus(jobId) {
+      let done = false;
+      while (!done) {
+        const resp = await fetch(`/status/${jobId}`);
+        const data = await resp.json();
+        if (!data.success) {
+          progressMessage.textContent = data.error || 'Unknown error.';
+          break;
+        }
+        progressFill.style.width = data.progress + '%';
+        progressFill.textContent = data.progress + '%';
+        progressMessage.textContent = data.message || '';
+        if (data.status === 'done') {
+          done = true;
+          result.style.display = 'block';
+          result.innerHTML = `<h2>Result</h2>
+            <p><strong>File:</strong> ${data.input_name}</p>
+            <p><strong>Language:</strong> ${data.language} (${data.confidence}% confidence)</p>
+            <p class="download"><a href="${data.download_url}">Download ${data.format}</a></p>
+            <textarea readonly>${data.output_text}</textarea>`;
+          break;
+        }
+        if (data.status === 'error') {
+          progressMessage.textContent = 'Error: ' + data.message;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      result.style.display = 'none';
+      progressContainer.style.display = 'block';
+      progressFill.style.width = '0%';
+      progressFill.textContent = '0%';
+      progressMessage.textContent = 'Starting...';
+
+      const formData = new FormData(form);
+      const resp = await fetch('/submit', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await resp.json();
+      if (!data.success) {
+        progressMessage.textContent = data.error || 'Submission failed.';
+        return;
+      }
+      pollStatus(data.job_id);
+    });
+  </script>
+</body>
+</html>

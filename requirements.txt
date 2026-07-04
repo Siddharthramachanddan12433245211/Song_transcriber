@@ -28,3 +28,5 @@ sympy==1.14.0
 tokenizers==0.23.1
 tqdm==4.68.3
 typing_extensions==4.16.0
+flask==3.0.0
+werkzeug==3.0.0
