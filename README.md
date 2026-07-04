@@ -41,6 +41,18 @@ Optional environment variables:
 
 Use the web form to upload a media file and download the generated transcript.
 
+### Replit deployment
+This project is ready to deploy on Replit.
+1. Create a new Python Repl.
+2. Import the repository from GitHub.
+3. Replit will use `.replit` to run:
+   ```
+   python -m pip install -r requirements.txt && python -m shabd.web
+   ```
+4. Open the Replit web preview URL and upload a file.
+
+Note: Replit provides CPU compute for your server, but it is limited. Keep uploads small and use the `fast` or `balanced` tier for faster response.
+
 ### Monetization / ads
 I added lightweight ad placeholders in `templates/index.html` so you can replace them with real ad code later.
 - The ads are non-intrusive and only appear in two small banner areas.
