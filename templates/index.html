@@ -138,11 +138,19 @@
         setProgress(data.progress || 0, data.message);
         if (data.status === 'done') {
           result.style.display = 'block';
+          // Static skeleton only; every user/model-influenced value is set
+          // via textContent below so it can never execute as HTML (XSS).
           result.innerHTML = `<h2>Result</h2>
-            <p><strong>File:</strong> ${data.input_name}</p>
-            <p><strong>Language:</strong> ${data.language} (${data.confidence}% confidence)</p>
-            <p class="download"><a href="${data.download_url}">Download .${data.format} file</a></p>
+            <p><strong>File:</strong> <span data-r="file"></span></p>
+            <p><strong>Language:</strong> <span data-r="lang"></span></p>
+            <p class="download"><a data-r="link"></a></p>
             <textarea readonly></textarea>`;
+          result.querySelector('[data-r="file"]').textContent = data.input_name;
+          result.querySelector('[data-r="lang"]').textContent =
+            `${data.language} (${data.confidence}% confidence)`;
+          const link = result.querySelector('[data-r="link"]');
+          link.setAttribute('href', data.download_url);
+          link.textContent = `Download .${data.format} file`;
           result.querySelector('textarea').value = data.output_text;
           submitBtn.disabled = false;
           return;

@@ -33,6 +33,7 @@ MAX_MB = _env_int("SHABD_WEB_MAX_MB", 50)
 MAX_MINUTES = _env_int("SHABD_WEB_MAX_MINUTES", 15)
 MAX_QUEUE = _env_int("SHABD_WEB_MAX_QUEUE", 10)
 RETENTION_MINUTES = _env_int("SHABD_WEB_RETENTION_MINUTES", 120)
+SWEEP_SECONDS = _env_int("SHABD_WEB_SWEEP_SECONDS", 600)
 
 _tier_env = os.environ.get("SHABD_WEB_TIERS", "fast,balanced")
 ALLOWED_TIERS = [t.strip() for t in _tier_env.split(",")
@@ -56,7 +57,11 @@ _jobs_lock = threading.Lock()
 _job_queue = queue.Queue()
 _engine = engine_mod.Engine()
 _worker_started = threading.Event()
+_sweeper_started = threading.Event()
 _seq_counter = {"n": 0}
+# Slots reserved by /submit requests that are still validating/saving their
+# upload. Counted against MAX_QUEUE so concurrent submits can't overshoot it.
+_pending = {"n": 0}
 
 
 def allowed_file(filename):
@@ -109,6 +114,30 @@ def _queue_position(job_id):
 def _queued_count():
     with _jobs_lock:
         return sum(1 for j in _jobs.values() if j.get("status") == "queued")
+
+
+def _reserve_slot():
+    """Atomically claim a queue slot (review M4: check+act under one lock)."""
+    with _jobs_lock:
+        queued = sum(1 for j in _jobs.values() if j.get("status") == "queued")
+        if queued + _pending["n"] >= MAX_QUEUE:
+            return False
+        _pending["n"] += 1
+        return True
+
+
+def _release_slot():
+    with _jobs_lock:
+        _pending["n"] = max(0, _pending["n"] - 1)
+
+
+def _commit_job(job_id, **fields):
+    """Turn a reserved slot into a queued job in one atomic step."""
+    with _jobs_lock:
+        _pending["n"] = max(0, _pending["n"] - 1)
+        _seq_counter["n"] += 1
+        fields["seq"] = _seq_counter["n"]
+        _jobs[job_id] = fields
 
 
 def sweep_old_files(now=None):
@@ -200,6 +229,24 @@ def _worker_loop():
             _job_queue.task_done()
 
 
+def _sweeper_loop():
+    """Time-based retention sweep, independent of job traffic (review C1):
+    the deletion promise must hold even if nobody submits another job."""
+    while True:
+        time.sleep(max(1, SWEEP_SECONDS))
+        try:
+            sweep_old_files()
+        except Exception:
+            pass
+
+
+def _start_sweeper():
+    if not _sweeper_started.is_set():
+        _sweeper_started.set()
+        threading.Thread(target=_sweeper_loop, daemon=True,
+                         name="shabd-web-sweeper").start()
+
+
 def _ensure_worker():
     if not _worker_started.is_set():
         with _jobs_lock:
@@ -207,6 +254,7 @@ def _ensure_worker():
                 threading.Thread(target=_worker_loop, daemon=True,
                                  name="shabd-web-worker").start()
                 _worker_started.set()
+    _start_sweeper()
 
 
 def warm_up_default_model():
@@ -251,50 +299,64 @@ def submit():
         return jsonify(success=False,
                        error="Unsupported file type. Please upload audio or "
                              "video (mp3, wav, m4a, mp4…)."), 400
-    if _queued_count() >= MAX_QUEUE:
+    if not _reserve_slot():
         return jsonify(success=False,
                        error="The free queue is full right now — please try "
                              "again in a few minutes."), 429
 
-    filename = secure_filename(media.filename) or "upload"
-    input_path = os.path.join(UPLOAD_DIR, "%s_%s" % (uuid4().hex, filename))
-    media.save(input_path)
+    input_path = None
+    committed = False
+    try:
+        stem, ext = os.path.splitext(secure_filename(media.filename) or "upload")
+        filename = (stem[:80] or "upload") + ext[:10]
+        input_path = os.path.join(UPLOAD_DIR, "%s_%s" % (uuid4().hex, filename))
+        media.save(input_path)
 
-    duration = probe_duration_seconds(input_path)
-    if duration is not None and MAX_MINUTES and duration > MAX_MINUTES * 60:
-        try:
-            os.remove(input_path)
-        except OSError:
-            pass
-        return jsonify(success=False,
-                       error="This recording is %.1f minutes long; the free "
-                             "service accepts up to %d minutes."
-                             % (duration / 60.0, MAX_MINUTES)), 400
+        duration = probe_duration_seconds(input_path)
+        if duration is None:
+            return jsonify(success=False,
+                           error="Could not read this file's length — it may "
+                                 "be damaged. Please upload a standard audio/"
+                                 "video file (mp3, wav, m4a, mp4…)."), 400
+        if MAX_MINUTES and duration > MAX_MINUTES * 60:
+            return jsonify(success=False,
+                           error="This recording is %.1f minutes long; the "
+                                 "free service accepts up to %d minutes."
+                                 % (duration / 60.0, MAX_MINUTES)), 400
 
-    tier = request.form.get("tier", DEFAULT_TIER)
-    if tier not in ALLOWED_TIERS:
-        tier = DEFAULT_TIER
-    fmt = request.form.get("format", ALLOWED_FORMATS[0])
-    if fmt not in ALLOWED_FORMATS:
-        fmt = ALLOWED_FORMATS[0]
-    language = (request.form.get("language", "auto").strip() or "auto")[:16]
-    task = request.form.get("task", "transcribe")
-    if task not in ("transcribe", "translate"):
-        task = "transcribe"
-    vocab = request.form.get("vocab", "").strip()[:500] or None
+        tier = request.form.get("tier", DEFAULT_TIER)
+        if tier not in ALLOWED_TIERS:
+            tier = DEFAULT_TIER
+        fmt = request.form.get("format", ALLOWED_FORMATS[0])
+        if fmt not in ALLOWED_FORMATS:
+            fmt = ALLOWED_FORMATS[0]
+        language = request.form.get("language", "auto").strip().lower()
+        if not (language == "auto" or (language.isalpha() and len(language) <= 3)):
+            language = "auto"
+        task = request.form.get("task", "transcribe")
+        if task not in ("transcribe", "translate"):
+            task = "transcribe"
+        vocab = request.form.get("vocab", "").strip()[:500] or None
 
-    job_id = uuid4().hex
-    with _jobs_lock:
-        _seq_counter["n"] += 1
-        seq = _seq_counter["n"]
-    _set_job(job_id, status="queued", progress=0, seq=seq,
-             message="Waiting in line…", created=time.time(),
-             input_name=media.filename, input_path=input_path,
-             nice_name=os.path.splitext(filename)[0] or "transcript",
-             tier=tier, language=language, task=task, format=fmt, vocab=vocab)
-    _ensure_worker()
-    _job_queue.put(job_id)
-    return jsonify(success=True, job_id=job_id)
+        job_id = uuid4().hex
+        _commit_job(job_id, status="queued", progress=0,
+                    message="Waiting in line…", created=time.time(),
+                    input_name=media.filename, input_path=input_path,
+                    nice_name=stem[:80] or "transcript",
+                    tier=tier, language=language, task=task, format=fmt,
+                    vocab=vocab)
+        committed = True
+        _ensure_worker()
+        _job_queue.put(job_id)
+        return jsonify(success=True, job_id=job_id)
+    finally:
+        if not committed:
+            _release_slot()
+            if input_path is not None:
+                try:
+                    os.remove(input_path)
+                except OSError:
+                    pass
 
 
 @app.route("/status/<job_id>")
