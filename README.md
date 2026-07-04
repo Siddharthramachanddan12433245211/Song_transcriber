@@ -27,36 +27,36 @@ py -m venv .venv
 .venv\Scripts\python tests\e2e_test.py                     # full pipeline test (downloads tiny model once)
 ```
 
-## Web app
-Run the Flask web UI locally:
+## Web app (free public song transcription)
+Spec: `specs/song-transcriber-web.md`. Run the web UI locally:
 ```
 .venv\Scripts\python -m shabd.web
 ```
-Then open `http://127.0.0.1:5000/` in your browser.
+Then open `http://127.0.0.1:7860/` in your browser.
 
-This version is intended for free CPU transcription. It uses your existing code and runs the model locally on the server.
+Jobs run one at a time through a queue; uploads are limited (50 MB / 15 min
+by default) and files are auto-deleted (inputs right after processing,
+outputs after 2 h). All limits are env-overridable — see the table in the spec.
 
-Optional environment variables:
-- `SHABD_SECRET_KEY` to override the Flask secret key
+### Hosting (Hugging Face Spaces, free CPU tier)
+The web app deploys as a Docker Space (2 vCPU / 16 GB, $0):
+```
+set HF_TOKEN=hf_xxx     (WRITE token from hf.co/settings/tokens)
+.venv\Scripts\python tools\deploy_space.py
+```
+Live URL: `https://huggingface.co/spaces/Siddharth7021/shabd`. Re-run the
+script to redeploy after changes. (Replit was evaluated and rejected — its
+free tier cannot host this; see spec §Hosting decision.)
 
-Use the web form to upload a media file and download the generated transcript.
-
-### Replit deployment
-This project is ready to deploy on Replit.
-1. Create a new Python Repl.
-2. Import the repository from GitHub.
-3. Replit will use `.replit` to run:
-   ```
-   python -m pip install -r requirements.txt && python -m shabd.web
-   ```
-4. Open the Replit web preview URL and upload a file.
-
-Note: Replit provides CPU compute for your server, but it is limited. Keep uploads small and use the `fast` or `balanced` tier for faster response.
+### Web tests
+```
+.venv\Scripts\python -m unittest discover -s tests -v   # includes web unit tests
+.venv\Scripts\python tests\e2e_web_test.py              # real server + real model over HTTP
+```
 
 ### Monetization / ads
-I added lightweight ad placeholders in `templates/index.html` so you can replace them with real ad code later.
-- The ads are non-intrusive and only appear in two small banner areas.
-- For real monetization, integrate Google AdSense or any ad network into those placeholders.
+Two placeholder ad boxes exist in `templates/index.html`. Real ad code
+(AdSense etc.) is a later, owner-approved step — it needs its own domain.
 
 - `shabd/cues.py` — subtitle formatting logic (pure functions, fully unit-tested)
 - `shabd/engine.py` — speech recognition wrapper (faster-whisper)
