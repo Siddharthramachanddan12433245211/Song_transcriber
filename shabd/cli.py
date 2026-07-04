@@ -44,6 +44,13 @@ def make_parser():
 
 
 def main(argv=None):
+    # Windows consoles may default to legacy encodings; Hindi/Unicode
+    # transcripts must never crash the CLI.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     args = make_parser().parse_args(argv)
     tier = args.model or args.tier or hardware.recommend_tier()
     formats = [f for f in args.formats.split(",") if f.strip()]
