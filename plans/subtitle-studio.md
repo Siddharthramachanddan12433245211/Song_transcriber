@@ -31,3 +31,10 @@ Small numbered tasks, each testable in one sitting; something runnable early.
 
 Approval-needed items: task 2's dependencies (surfaced in spec §Dependencies —
 proceeding under owner's standing "don't ask until it's created" instruction).
+
+## Backlog (from final review — non-blocking)
+- B1. tests/test_cli.py, or route e2e_test.py through shabd.cli.
+- B2. cues.py hard-cap pass: defensive min-gap floor for the theoretical
+  identical-start 0.01 s overlap case.
+- B3. v1.1 roadmap per spec: .exe installer (PyInstaller), speaker labels,
+  burned-in subtitles, Hindi UI.
