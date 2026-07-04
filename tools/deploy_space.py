@@ -47,15 +47,17 @@ def main():
                         help="Space id, e.g. Siddharth7021/shabd")
     args = parser.parse_args()
 
-    token = os.environ.get("HF_TOKEN")
-    if not token:
-        print("ERROR: set the HF_TOKEN environment variable first.\n"
+    # Token comes from HF_TOKEN env var, or from a saved `hf auth login`.
+    from huggingface_hub import HfApi
+    api = HfApi(token=os.environ.get("HF_TOKEN"))
+    try:
+        who = api.whoami()
+    except Exception:
+        print("ERROR: not logged in to Hugging Face.\n"
+              "Either run:  .venv\\Scripts\\hf.exe auth login\n"
+              "or set the HF_TOKEN environment variable.\n"
               "Create a WRITE token at https://huggingface.co/settings/tokens")
         return 1
-
-    from huggingface_hub import HfApi
-    api = HfApi(token=token)
-    who = api.whoami()
     print("Logged in as: %s" % who.get("name"))
 
     staging = tempfile.mkdtemp(prefix="shabd_space_")
